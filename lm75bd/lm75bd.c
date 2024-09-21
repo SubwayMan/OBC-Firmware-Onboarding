@@ -10,6 +10,7 @@
 /* LM75BD Registers (p.8) */
 #define LM75BD_REG_CONF 0x01U  /* Configuration Register (R/W) */
 
+
 error_code_t lm75bdInit(lm75bd_config_t *config) {
   error_code_t errCode;
 
@@ -25,9 +26,22 @@ error_code_t lm75bdInit(lm75bd_config_t *config) {
   return ERR_CODE_SUCCESS;
 }
 
+#define CONF_WRITE_POINTER_BUFF_SIZE 1U
 error_code_t readTempLM75BD(uint8_t devAddr, float *temp) {
   /* Implement this driver function */
-  
+  error_code_t errCode;
+  uint8_t buff[CONF_WRITE_POINTER_BUFF_SIZE] = {0};
+  errCode = i2cSendTo(devAddr, buff, CONF_WRITE_POINTER_BUFF_SIZE);
+  if (errCode != ERR_CODE_SUCCESS) return errCode;
+
+  uint8_t temp_bytes[2U] = {0}; // first interpret data as unsigned
+  errCode = i2cReceiveFrom(devAddr, temp_bytes, 2);
+  if (errCode != ERR_CODE_SUCCESS) return errCode;
+
+  int data = temp_bytes[0];
+  data -= 2 * ((1 << 7) & data); // handle signed bit
+  data = (data << 3) | (temp_bytes[1] >> 5); // get LSbyte
+  *temp = (float) data * 0.125;
   return ERR_CODE_SUCCESS;
 }
 
