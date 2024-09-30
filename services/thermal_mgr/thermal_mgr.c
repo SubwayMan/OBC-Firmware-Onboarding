@@ -17,6 +17,8 @@ static StackType_t thermalMgrTaskStack[THERMAL_MGR_STACK_SIZE];
 
 #define THERMAL_MGR_QUEUE_LENGTH 10U
 #define THERMAL_MGR_QUEUE_ITEM_SIZE sizeof(thermal_mgr_event_t)
+#define THERMAL_OVERTEMPERATURE_THRESHOLD 80.0
+#define THERMAL_HYSTERESIS_THRESHOLD 75.0
 
 static QueueHandle_t thermalMgrQueueHandle;
 static StaticQueue_t thermalMgrQueueBuffer;
@@ -38,7 +40,6 @@ void initThermalSystemManager(lm75bd_config_t *config) {
   thermalMgrQueueHandle = xQueueCreateStatic(
     THERMAL_MGR_QUEUE_LENGTH, THERMAL_MGR_QUEUE_ITEM_SIZE,
     thermalMgrQueueStorageArea, &thermalMgrQueueBuffer);
-
 }
 
 error_code_t thermalMgrSendEvent(thermal_mgr_event_t *event) {
@@ -49,6 +50,9 @@ error_code_t thermalMgrSendEvent(thermal_mgr_event_t *event) {
 
 void osHandlerLM75BD(void) {
   /* Implement this function */
+  thermal_mgr_event_t event;
+  event.type = THERMAL_MGR_EVENT_OS_INTERRUPT;
+  thermalMgrSendEvent(&event);
 }
 
 static void thermalMgr(void *pvParameters) {
@@ -56,11 +60,21 @@ static void thermalMgr(void *pvParameters) {
   while (1) {
     thermal_mgr_event_t event;
     if (xQueueReceive(thermalMgrQueueHandle, &event, portMAX_DELAY)) {
-      if (event.type == THERMAL_MGR_EVENT_MEASURE_TEMP_CMD) {
-        const lm75bd_config_t data = *(lm75bd_config_t *) pvParameters;
-        float temperature;
-        readTempLM75BD(data.devAddr, &temperature);
-        addTemperatureTelemetry(temperature);
+      const lm75bd_config_t data = *(lm75bd_config_t *) pvParameters;
+      float temperature;
+      readTempLM75BD(data.devAddr, &temperature);
+      switch (event.type) {
+        case THERMAL_MGR_EVENT_MEASURE_TEMP_CMD:
+          addTemperatureTelemetry(temperature);
+          break;
+        case THERMAL_MGR_EVENT_OS_INTERRUPT:
+          if (temperature > THERMAL_OVERTEMPERATURE_THRESHOLD) {
+            overTemperatureDetected();
+          }
+          if (temperature < THERMAL_HYSTERESIS_THRESHOLD) {
+            safeOperatingConditions();
+          }
+          break;
       }
     }
   }
